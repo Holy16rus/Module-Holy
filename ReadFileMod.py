@@ -1,7 +1,4 @@
-# 🌐 https://github.com/Holy16rus/Module-Holy/blob/main/ReadFileMod.py
 # meta developer: @CoderHoly
-
-
 import os
 import json
 import httpx
@@ -333,7 +330,7 @@ class ReadFileMod(loader.Module):
         return total_bytes, total_files
 
     async def rfcmd(self, message: Message):
-        """.rf <reply to file> — анализ и чтение файла"""
+        """<reply to file> — анализ и чтение файла"""
         reply = await message.get_reply_message()
         if not reply or not reply.file:
             await message.edit("❌ Ответьте на файл.")
@@ -571,7 +568,7 @@ class ReadFileMod(loader.Module):
         )
 
     async def cccmd(self, message: Message):
-        """Показать статистику кеша и очистить при необходимости (.cc)"""
+        """Показать статистику кеша и очистить при необходимости"""
         total_bytes, total_files = self._get_cache_stats()
         size_str = self._format_size(total_bytes)
 
