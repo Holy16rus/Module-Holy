@@ -8,6 +8,7 @@ import zlib
 import logging
 import hashlib
 import tempfile
+import sys
 from telethon.tl.types import Message
 from .. import loader, utils
 
@@ -15,7 +16,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-__version__ = (1, 6, 7)
+__version__ = (1, 7, 1)
 
 @loader.tds
 class ReadFileMod(loader.Module):
@@ -79,25 +80,19 @@ class ReadFileMod(loader.Module):
             loader.ConfigValue(
                 "provider",
                 "OpenRouter",
-                "Провайдер AI (по умолчанию OpenRouter)",
+                "Провайдер AI (Пока-что доступен только OpenRouter)",
                 validator=loader.validators.Choice(["OpenRouter"]),
             ),
             loader.ConfigValue(
                 "model",
                 "kwaipilot/kat-coder-pro:free",
-                "Модель ИИ для анализа кода",
+                "Модель ИИ для анализа кода , можно выбрать другую эта более умная",
             ),
             loader.ConfigValue(
                 "api_key",
                 None,
-                "API ключ OpenRouter",
+                "API ключ OpenRouter , Получить можно по ссылке https://openrouter.ai/settings/keys",
                 validator=loader.validators.Hidden(),
-            ),
-            loader.ConfigValue(
-                "proxy",
-                "",
-                "Прокси (http://user:pass@host:port)",
-                validator=loader.validators.String(),
             ),
         )
 
@@ -190,7 +185,7 @@ class ReadFileMod(loader.Module):
         model = self.config["model"]
         api_key = self.config["api_key"]
         if not api_key:
-            return "❌ Ошибка: Не указан API ключ OpenRouter."
+            return "❌ Ошибка: Не указан API ключ OpenRouter. Пожалуйста, настройте его для полноценного AI-анализа."
 
         if json_mode:
             system_prompt = (
@@ -411,7 +406,10 @@ class ReadFileMod(loader.Module):
                 reply_markup=buttons
             )
         elif hasattr(msg_or_call, "edit"):
-            await msg_or_call.edit(text=text, reply_markup=buttons)
+            try:
+                await msg_or_call.edit(text=text, reply_markup=buttons)
+            except Exception:
+                await msg_or_call.answer(text=text, reply_markup=buttons)
 
     async def _page_cb(self, call, index):
         await self._show_page(call, index)
@@ -527,27 +525,37 @@ class ReadFileMod(loader.Module):
             f"<b>Размер:</b> {size_str}\n"
             f"<b>Страниц:</b> {pages}\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"🤖 <b>AI-Анализ | {status}</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
         )
-
-        text += "🔹<b>Назначение модуля:</b>\n"
-        text += f"<blockquote>{purpose}</blockquote>\n"
-
-        if general_caps or command_lines:
-            text += "⚙️<b> Возможности и Команды:</b>\n"
-            combined_list = [f"• {c}" for c in command_lines]
-            combined_list.extend(
-                [f"• {utils.escape_html(c)}" for c in general_caps]
+        
+        if not self.config["api_key"]:
+            text += (
+                "Для AI Анализа\n"
+                "Пожалуйста, настройте Api Key\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
             )
-            cmds_str = "\n".join(combined_list)
-            text += f"<blockquote>{cmds_str}</blockquote>\n"
-
-        if ai_risks:
-            dangers_str = "\n".join([f"• {utils.escape_html(d)}" for d in ai_risks])
-            text += "☢️ <b>Опасные или рискованные действия:</b>\n"
-            text += f"<blockquote>{dangers_str}</blockquote>\n"
-
+        else:
+            text += (
+                f"🤖 <b>AI-Анализ | {status}</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            
+            text += "🔹<b>Назначение модуля:</b>\n"
+            text += f"<blockquote>{purpose}</blockquote>\n"
+            
+            if general_caps or command_lines:
+                text += "⚙️<b> Возможности и Команды:</b>\n"
+                combined_list = [f"• {c}" for c in command_lines]
+                combined_list.extend(
+                    [f"• {utils.escape_html(c)}" for c in general_caps]
+                )
+                cmds_str = "\n".join(combined_list)
+                text += f"<blockquote>{cmds_str}</blockquote>\n"
+            
+            if ai_risks:
+                dangers_str = "\n".join([f"• {utils.escape_html(d)}" for d in ai_risks])
+                text += "☢️ <b>Опасные или рискованные действия:</b>\n"
+                text += f"<blockquote>{dangers_str}</blockquote>\n"
+        
         all_heur = crit_list + warn_list + susp_list
         if all_heur:
             heur_str = "\n".join([f"• {utils.escape_html(d)}" for d in all_heur])
@@ -623,6 +631,111 @@ class ReadFileMod(loader.Module):
             "━━━━━━━━━━━━━━━━━━━━\n"
             "Можно продолжать анализ новых модулей 🙂"
         )
+
+    async def updatefmcmd(self, message: Message):
+        """Проверка и обновление версии модуля"""
+        await utils.answer(message, "⏳ Проверка версии модуля...")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://raw.githubusercontent.com/Holy16rus/Module-Holy/main/ReadFileMod.py"
+                )
+                response.raise_for_status()
+                
+                remote_content = response.text
+                remote_version_match = re.search(
+                    r"__version__\s*=\s*\((\d+),\s*(\d+),\s*(\d+)\)",
+                    remote_content
+                )
+                
+                if not remote_version_match:
+                    await utils.answer(message, "❌ Не удалось определить версию в репозитории.")
+                    return
+                
+                remote_version = tuple(map(int, remote_version_match.groups()))
+                current_version = __version__
+                
+                if remote_version > current_version:
+                    text = (
+                        "<b>👻 Информация о Версии</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        f"<b>Версия:</b> {'.'.join(map(str, current_version))}\n"
+                        f"<b>В репозитории:</b> {'.'.join(map(str, remote_version))}\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "<b>Хотите обновить модуль?</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━"
+                    )
+                    
+                    await self.inline.form(
+                        text=text,
+                        message=message,
+                        reply_markup=[
+                            [{"text": "Обновить", "callback": self._update_confirm_cb, "args": (remote_content,)}]
+                        ]
+                    )
+                else:
+                    text = (
+                        "<b>👻 Информация о Версии</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        f"<b>Версия:</b> {'.'.join(map(str, current_version))}\n"
+                        f"<b>В репозитории:</b> {'.'.join(map(str, remote_version))}\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "<b>✅ У вас уже установлена актуальная версия!</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━"
+                    )
+                    
+                    await self.inline.form(
+                        text=text,
+                        message=message,
+                        reply_markup=[]
+                    )
+        except Exception as e:
+            await utils.answer(message, f"❌ Ошибка при проверке обновлений: {e}")
+
+    async def _update_confirm_cb(self, call, remote_content: str):
+        """Обработчик подтверждения обновления"""
+        try:
+            loader_module = self.lookup("loader")
+            if not loader_module:
+                await call.edit("❌ Ошибка: Не удалось найти модуль loader.")
+                return
+            
+            remote_version_match = re.search(
+                r"__version__\s*=\s*\((\d+),\s*(\d+),\s*(\d+)\)",
+                remote_content
+            )
+            if remote_version_match:
+                remote_version = tuple(map(int, remote_version_match.groups()))
+            else:
+                await call.edit("❌ Ошибка: Не удалось определить версию в обновлении.")
+                return
+            
+            await call.edit("⏳ Обновление модуля...")
+            
+            for _ in range(5):
+                await loader_module.download_and_install(
+                    "https://raw.githubusercontent.com/Holy16rus/Module-Holy/main/ReadFileMod.py",
+                    None
+                )
+                
+                if getattr(loader_module, "fully_loaded", False):
+                    loader_module.update_modules_in_db()
+                
+                is_loaded = any(
+                    mod.__origin__ == "https://raw.githubusercontent.com/Holy16rus/Module-Holy/main/ReadFileMod.py"
+                    for mod in self.allmodules.modules
+                )
+                
+                if is_loaded:
+                    await call.edit(
+                        f"✅ Модуль успешно обновлён до версии {'.'.join(map(str, remote_version))}!"
+                    )
+                    break
+            else:
+                await call.edit("❌ Ошибка: Не удалось обновить модуль после нескольких попыток.")
+        except Exception as e:
+            await call.edit(f"❌ Ошибка при обновлении модуля: {e}")
 
     async def on_unload(self):
         if self.file_path and os.path.exists(self.file_path):
